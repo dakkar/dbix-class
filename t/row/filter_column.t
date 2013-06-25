@@ -137,6 +137,8 @@ IC_DIE: {
         filter_from_storage => sub {}
      });
   } q(Can't filter column after inflate column);
+
+  delete DBICTest::Schema::Artist->column_info('name')->{_inflate_info};
 }
 
 # test when we do not set both filter_from_storage/filter_to_storage
@@ -196,5 +198,46 @@ throws_ok { DBICTest::Schema::Artist->filter_column( rank => {} ) }
   qr/\QAn invocation of filter_column() must specify either a filter_from_storage or filter_to_storage/,
   'Correctly throws exception for empty attributes'
 ;
+
+DBICTest::Schema::Artist->filter_column(name => {
+  filter_from_storage => sub { [ split /,/,$_[1] ] },
+  filter_to_storage   => sub { ref($_[1]) ? join ',',@{$_[1]} : $_[1] },
+});
+Class::C3->reinitialize();
+
+NO_ROUND_TRIP_TEST: {
+    $artist->name([qw(a b)]);
+    is_deeply($artist->name,[qw(a b)],'array set & retrieved');
+
+    $artist->name('a,b,c');
+    is_deeply($artist->name,'a,b,c','array not round-triped after set');
+
+    $artist->update;
+    is_deeply($artist->name,'a,b,c','array not round-triped after update');
+
+    $artist->discard_changes;
+    is_deeply($artist->name,[qw(a b c)],'array round-triped after re-load');
+}
+
+DBICTest::Schema::Artist->filter_column(name => {
+  filter_from_storage => sub { [ split /,/,$_[1] ] },
+  filter_to_storage   => sub { ref($_[1]) ? join ',',@{$_[1]} : $_[1] },
+  round_trip => 1,
+});
+Class::C3->reinitialize();
+
+ROUND_TRIP_TEST: {
+    $artist->name([qw(a b)]);
+    is_deeply($artist->name,[qw(a b)],'array set & retrieved');
+
+    $artist->name('a,b,c');
+    is_deeply($artist->name,[qw(a b c)],'array round-triped after set');
+
+    $artist->update;
+    is_deeply($artist->name,[qw(a b c)],'array still round-triped after update');
+
+    $artist->discard_changes;
+    is_deeply($artist->name,[qw(a b c)],'array still round-triped after re-load');
+}
 
 done_testing;

@@ -103,6 +103,9 @@ sub store_column {
 sub set_filtered_column {
   my ($self, $col, $filtered) = @_;
 
+  $self->throw_exception("$col is not a filtered column")
+    unless exists $self->column_info($col)->{_filter_info};
+
   # do not blow up the cache via set_column unless necessary
   # (filtering may be expensive!)
   if (exists $self->{_filtered_column}{$col}) {
@@ -112,7 +115,11 @@ sub set_filtered_column {
     $self->make_column_dirty ($col); # so the comparison won't run again
   }
 
-  $self->set_column($col, $self->_column_to_storage($col, $filtered));
+  $self->set_column($col, my $to_storage = $self->_column_to_storage($col, $filtered));
+
+  if ($self->column_info($col)->{_filter_info}{round_trip}) {
+      return $self->{_filtered_column}{$col} = $self->_column_from_storage($col,$to_storage);
+  }
 
   return $self->{_filtered_column}{$col} = $filtered;
 }
@@ -209,6 +216,44 @@ storage.
 
 If a specific directional filter is not specified, the original value will be
 passed to/from storage unfiltered.
+
+=head3 "round-tripping" values
+
+The hash passed to C<filter_column> can also contain C<< round_trip =>
+1 >>; when it does, the cached value for filtered dirty columns will
+not be whatever was last passed to the accessor, bit it will be the
+round-tripped value. This is useful if your filters do some kind of
+non-invertible transformation on the data.
+
+For example:
+
+  __PACKAGE__->filter_column( colname => {
+      filter_from_storage => sub { [ split /,/,$_[1] ] },
+      filter_to_storage => sub { ref($_[1]) ? join ',',@{$_[1]} : $_[1] },
+  });
+
+Then:
+
+  $row->colname('a,b,c');
+  my $v = $row->colname; # this is still the string
+  $row->update;$row->discard_changes;
+  $v = $row->colname; # this is now an array-ref [qw(a b c)]
+
+This may be confusing. If you add C<< round_trip => 1 >>, you'll get a
+less surprising behaviour:
+
+  __PACKAGE__->filter_column( colname => {
+      filter_from_storage => sub { [ split /,/,$_[1] ] },
+      filter_to_storage => sub { ref($_[1]) ? join ',',@{$_[1]} : $_[1] },
+      round_trip => 1,
+  });
+
+  $row->colname('a,b,c');
+  my $v = $row->colname; # this is already the array-ref
+
+This comes at a price: each time you set a value, both the
+C<filter_to_storage> I<and> the C<filter_from_storage> methdos will be
+invoked (instead of just C<filter_to_storage>).
 
 =head2 get_filtered_column
 
