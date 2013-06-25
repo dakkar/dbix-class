@@ -106,9 +106,11 @@ sub set_filtered_column {
   $self->throw_exception("$col is not a filtered column")
     unless exists $self->column_info($col)->{_filter_info};
 
+  my $info = $self->column_info($col)->{_filter_info};
   # do not blow up the cache via set_column unless necessary
   # (filtering may be expensive!)
-  if (exists $self->{_filtered_column}{$col}) {
+  if (exists $self->{_filtered_column}{$col}
+      and ! $info->{compare_storage_values}) {
     return $filtered
       if ($self->_eq_column_values ($col, $filtered, $self->{_filtered_column}{$col} ) );
 
@@ -117,7 +119,7 @@ sub set_filtered_column {
 
   $self->set_column($col, my $to_storage = $self->_column_to_storage($col, $filtered));
 
-  if ($self->column_info($col)->{_filter_info}{round_trip}) {
+  if ($info->{round_trip}) {
       return $self->{_filtered_column}{$col} = $self->_column_from_storage($col,$to_storage);
   }
 
@@ -254,6 +256,16 @@ less surprising behaviour:
 This comes at a price: each time you set a value, both the
 C<filter_to_storage> I<and> the C<filter_from_storage> methdos will be
 invoked (instead of just C<filter_to_storage>).
+
+=head3 Dirty columns
+
+Normally, a column is marked dirty if the I<unfiltered> value changes,
+so we avoid calling the (possibly expensive) filter when setting the
+value. This does not work, however, if you're filtering to/from
+references (like L<DBIx::Class::InflateColumn> would do). If you set
+C<< compare_storage_values => 1 >> in the hash passed to
+C<filter_column>, this optimisation will be disabled, and a column
+will be marked dirty only when the I<filtered> value changes.
 
 =head2 get_filtered_column
 

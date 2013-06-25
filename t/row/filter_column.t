@@ -240,4 +240,38 @@ ROUND_TRIP_TEST: {
     is_deeply($artist->name,[qw(a b c)],'array still round-triped after re-load');
 }
 
+DEFAULT_EQ_TEST: {
+    my %dirty = $artist->get_dirty_columns;
+    ok(not(%dirty),'no dirty columns');
+
+    my $new_name = [ @{$artist->name} ];
+    $artist->name($new_name);
+    %dirty = $artist->get_dirty_columns;
+    ok($dirty{name},'name is now dirty, even if the actual value is the same');
+
+    $artist->discard_changes;
+}
+
+DBICTest::Schema::Artist->filter_column(name => {
+  filter_from_storage => sub { [ split /,/,$_[1] ] },
+  filter_to_storage   => sub { ref($_[1]) ? join ',',@{$_[1]} : $_[1] },
+  compare_storage_values => 1,
+});
+Class::C3->reinitialize();
+
+CUSTOM_EQ_TEST: {
+    my %dirty = $artist->get_dirty_columns;
+    ok(not(%dirty),'no dirty columns');
+
+    my $new_name = [ @{$artist->name} ];
+    $artist->name($new_name);
+    %dirty = $artist->get_dirty_columns;
+    ok(not(%dirty),'name is still not dirty');
+
+    pop @$new_name;
+    $artist->name($new_name);
+    %dirty = $artist->get_dirty_columns;
+    ok($dirty{name},'name is dirty having changed actual value');
+}
+
 done_testing;
